@@ -10,6 +10,7 @@ from collections import defaultdict
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import wandb
 
 from sgan.data.loader import data_loader
 from sgan.losses import gan_g_loss, gan_d_loss, l2_loss
@@ -283,6 +284,9 @@ def main(args):
                     checkpoint['G_losses'][k].append(v)
                 checkpoint['losses_ts'].append(t)
 
+            wandb.log(losses_d)
+            wandb.log(losses_g)
+
             # Maybe save a checkpoint
             if t > 0 and t % args.checkpoint_every == 0:
                 checkpoint['counters']['t'] = t
@@ -306,6 +310,8 @@ def main(args):
                 for k, v in sorted(metrics_train.items()):
                     logger.info('  [train] {}: {:.3f}'.format(k, v))
                     checkpoint['metrics_train'][k].append(v)
+                wandb.log({f'val_{key}': val for key, val in metrics_val.items()})
+                wandb.log({f'train_{key}': val for key, val in metrics_train.items()})
 
                 min_ade = min(checkpoint['metrics_val']['ade'])
                 min_ade_nl = min(checkpoint['metrics_val']['ade_nl'])
