@@ -365,6 +365,7 @@ class TrajectoryGenerator(nn.Module):
     def __init__(
         self, obs_len, pred_len, embedding_dim=64, encoder_h_dim=64,
         decoder_h_dim=128, mlp_dim=1024, num_layers=1, noise_dim=(0, ),
+        latent_code_dim=0,
         noise_type='gaussian', noise_mix_type='ped', pooling_type=None,
         pool_every_timestep=True, dropout=0.0, bottleneck_dim=1024,
         activation='relu', batch_norm=True, neighborhood_size=2.0, grid_size=8
@@ -443,10 +444,12 @@ class TrajectoryGenerator(nn.Module):
         else:
             input_dim = encoder_h_dim
 
+        self.latent_code_dim = latent_code_dim
         if self.mlp_decoder_needed():
             mlp_decoder_context_dims = [
-                input_dim, mlp_dim, decoder_h_dim - self.noise_first_dim
+                input_dim, mlp_dim, decoder_h_dim - self.noise_first_dim - self.latent_code_dim
             ]
+            # print(" mlp_decoder_context_dims:", decoder_h_dim, mlp_decoder_context_dims)
 
             self.mlp_decoder_context = make_mlp(
                 mlp_decoder_context_dims,
@@ -455,7 +458,7 @@ class TrajectoryGenerator(nn.Module):
                 dropout=dropout
             )
 
-    def add_noise(self, _input, seq_start_end, user_noise=None):
+    def add_noise(self, _input, seq_start_end, latent_code=None, user_noise=None):
         """
         Inputs:
         - _input: Tensor of shape (_, decoder_h_dim - noise_first_dim)
@@ -478,6 +481,10 @@ class TrajectoryGenerator(nn.Module):
         else:
             z_decoder = get_noise(noise_shape, self.noise_type)
 
+        # combine random noise and latent code
+        if latent_code is not None:
+            z_decoder = torch.cat([z_decoder, latent_code], dim=1)
+
         if self.noise_mix_type == 'global':
             _list = []
             for idx, (start, end) in enumerate(seq_start_end):
@@ -495,14 +502,14 @@ class TrajectoryGenerator(nn.Module):
 
     def mlp_decoder_needed(self):
         if (
-            self.noise_dim or self.pooling_type or
+            self.noise_dim or self.pooling_type or self.latent_code_dim or
             self.encoder_h_dim != self.decoder_h_dim
         ):
             return True
         else:
             return False
 
-    def forward(self, obs_traj, obs_traj_rel, seq_start_end, user_noise=None):
+    def forward(self, obs_traj, obs_traj_rel, seq_start_end, latent_code=None, user_noise=None):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -533,7 +540,10 @@ class TrajectoryGenerator(nn.Module):
         else:
             noise_input = mlp_decoder_context_input
         decoder_h = self.add_noise(
-            noise_input, seq_start_end, user_noise=user_noise)
+                noise_input,
+                seq_start_end,
+                latent_code=latent_code,
+                user_noise=user_noise)
         decoder_h = torch.unsqueeze(decoder_h, 0)
 
         decoder_c = torch.zeros(
@@ -581,13 +591,6 @@ class TrajectoryDiscriminator(nn.Module):
             dropout=dropout
         )
 
-        real_classifier_dims = [h_dim, mlp_dim, 1]
-        self.real_classifier = make_mlp(
-            real_classifier_dims,
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout
-        )
         if d_type == 'global':
             mlp_pool_dims = [h_dim + embedding_dim, mlp_dim, h_dim]
             self.pool_net = PoolHiddenNet(
@@ -619,5 +622,4 @@ class TrajectoryDiscriminator(nn.Module):
             classifier_input = self.pool_net(
                 final_h.squeeze(), seq_start_end, traj[0]
             )
-        scores = self.real_classifier(classifier_input)
-        return scores
+        return classifier_input
