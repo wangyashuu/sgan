@@ -94,6 +94,11 @@ parser.add_argument('--timing', default=0, type=int)
 parser.add_argument('--gpu_num', default="0", type=str)
 
 
+# Wandb
+parser.add_argument('--project', default=None, type=str)
+parser.add_argument('--entity', default=None, type=str)
+
+
 def init_weights(m):
     classname = m.__class__.__name__
     if classname.find('Linear') != -1:
@@ -109,7 +114,9 @@ def get_dtypes(args):
     return long_dtype, float_dtype
 
 
-def main(args):
+def main(args, wandb_params=None):
+    run =  wandb.init(config=args, **(wandb_params or dict(mode = 'disabled')))
+
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
     train_path = get_dset_path(args.dataset_name, 'train')
     val_path = get_dset_path(args.dataset_name, 'val')
@@ -364,6 +371,8 @@ def main(args):
             if t >= args.num_iterations:
                 break
 
+    run.finish()
+
 
 def discriminator_step(
     args, batch, generator, discriminator, d_loss_fn, optimizer_d
@@ -583,4 +592,9 @@ def cal_fde(
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    main(args)
+    wandb_params = None
+    if args.entity is not None:
+        wandb_params = dict(entity=args.entity, project=args.project)
+        del args.entity
+        del args.project
+    main(args, wandb_params)
