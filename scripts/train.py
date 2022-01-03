@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import time
+from pathlib import Path
 
 from collections import defaultdict
 
@@ -28,7 +29,12 @@ from infogan import (
     get_cont_code,
     get_latent_code,
     expand_code,
+    interpolate,
+    plot_interpolations,
 )
+
+log_path = Path("./outputs/logs")
+log_path.mkdir(parents=True, exist_ok=True)
 
 torch.backends.cudnn.benchmark = True
 
@@ -107,6 +113,13 @@ parser.add_argument('--gpu_num', default="0", type=str)
 # Wandb
 parser.add_argument('--project', default=None, type=str)
 parser.add_argument('--entity', default=None, type=str)
+
+
+# InfoGAN
+parser.add_argument('--n_disc_code', default=(10,), type=int_tuple)
+parser.add_argument('--n_cont_code', default=1, type=int)
+parser.add_argument('--lambda_disc_code', default=1e-1, type=float)
+parser.add_argument('--lambda_cont_code', default=1e-1, type=float)
 
 
 def init_weights(m):
@@ -340,12 +353,12 @@ def main(args, wandb_params=None):
                 logger.info('Checking stats on val ...')
                 metrics_val = check_accuracy(
                     args, val_loader, generator, discriminator, d_loss_fn,
-                    dhead, qhead, q_loss_fn
+                    dhead, qhead, q_loss_fn, t,
                 )
                 logger.info('Checking stats on train ...')
                 metrics_train = check_accuracy(
                     args, train_loader, generator, discriminator, d_loss_fn,
-                    dhead, qhead, q_loss_fn,
+                    dhead, qhead, q_loss_fn, t,
                     limit=True
                 )
 
@@ -466,14 +479,16 @@ def discriminator_step(
     losses['D_data_loss'] = data_loss.item()
     loss += data_loss
 
-    q_loss = q_loss_fn(
+    q_disc_loss, q_cont_loss = q_loss_fn(
         q_info,
         (disc_code, cont_code),
         args.n_disc_code,
         args.n_cont_code)
-    loss += args.lambda_code * q_loss
-    losses['D_q_loss'] = q_loss.item()
+    losses['D_q_disc_loss'] = q_disc_loss.item()
+    losses['D_q_cont_loss'] = q_cont_loss.item()
 
+    loss += args.lambda_disc_code * q_disc_loss
+    loss += args.lambda_cont_code * q_cont_loss
     losses['D_total_loss'] = loss.item()
 
     optimizer_d.zero_grad()
@@ -549,14 +564,16 @@ def generator_step(
     losses['G_discriminator_loss'] = discriminator_loss.item()
 
     q_info = qhead(discriminator_out)
-    q_loss = q_loss_fn(
+    q_disc_loss, q_cont_loss = q_loss_fn(
         q_info,
         (disc_code, cont_code),
         args.n_disc_code,
         args.n_cont_code)
-    loss += args.lambda_code * q_loss
-    losses['G_q_loss'] = q_loss.item()
+    losses['G_q_disc_loss'] = q_disc_loss.item()
+    losses['G_q_cont_loss'] = q_cont_loss.item()
 
+    loss += args.lambda_disc_code * q_disc_loss
+    loss += args.lambda_cont_code * q_cont_loss
     losses['G_total_loss'] = loss.item()
 
     optimizer_g.zero_grad()
@@ -571,10 +588,11 @@ def generator_step(
 
 
 def check_accuracy(
-    args, loader, generator, discriminator, d_loss_fn, dhead, qhead, q_loss_fn, limit=False
+    args, loader, generator, discriminator, d_loss_fn, dhead, qhead, q_loss_fn,
+    t, limit=False
 ):
-    q_losses = []
     d_losses = []
+    q_disc_losses, q_cont_losses = [], []
     metrics = {}
     g_l2_losses_abs, g_l2_losses_rel = ([],) * 2
     disp_error, disp_error_l, disp_error_nl = ([],) * 3
@@ -606,6 +624,7 @@ def check_accuracy(
             if args.noise_mix_type == 'global':
                 disc_code = expand_code(disc_code, seq_start_end)
                 cont_code = expand_code(cont_code, seq_start_end)
+            
             pred_traj_fake_rel = generator(
                 obs_traj, obs_traj_rel, seq_start_end, latent_code=latent_code
             )
@@ -635,13 +654,13 @@ def check_accuracy(
             scores_real = dhead(discriminator_out_fake)
 
             q_info = qhead(discriminator_out_fake)
-            q_loss = q_loss_fn(
+            q_disc_loss, q_cont_loss  = q_loss_fn(
                 q_info,
                 (disc_code, cont_code),
                 args.n_disc_code,
                 args.n_cont_code)
-
-            q_losses.append(q_loss.item())
+            q_disc_losses.append(q_disc_loss.item())
+            q_cont_losses.append(q_cont_loss.item())
 
             d_loss = d_loss_fn(scores_real, scores_fake)
             d_losses.append(d_loss.item())
@@ -659,10 +678,49 @@ def check_accuracy(
             total_traj += pred_traj_gt.size(1)
             total_traj_l += torch.sum(linear_ped).item()
             total_traj_nl += torch.sum(non_linear_ped).item()
+
             if limit and total_traj >= args.num_samples_check:
                 break
 
-    metrics['q_loss'] = sum(q_losses) / len(q_losses)
+        disc_interpolations = interpolate(
+            batch,
+            args.noise_mix_type,
+            args.noise_dim,
+            args.noise_type,
+            args.n_disc_code,
+            args.n_cont_code,
+            generator,
+            fix_code_idx=0,
+            n_views=5,
+        )
+        disc_fig = plot_interpolations(disc_interpolations)
+        disc_fig.savefig(os.path.join(log_path, f"disc_interpolations_{t}.jpg"))
+
+        cont_interpolations = interpolate(
+            batch,
+            args.noise_mix_type,
+            args.noise_dim,
+            args.noise_type,
+            args.n_disc_code,
+            args.n_cont_code,
+            generator,
+            fix_code_idx=len(args.n_disc_code),
+            fix_code_range=(-2, 2),
+            n_interpolation=8,
+            n_views=5,
+        )
+        cont_fig = plot_interpolations(cont_interpolations)
+        cont_fig.savefig(os.path.join(log_path, f"cont_interpolations_{t}.jpg"))
+        wandb.log({
+            "n_iteration": t,
+            # "disc_interpolations": disc_fig,
+            "disc_interpolations_image": wandb.Image(disc_fig),
+            # "cont_interpolations": cont_fig,
+            "cont_interpolations_image": wandb.Image(cont_fig),
+        })
+
+    metrics['q_disc_loss'] = sum(q_disc_losses) / len(q_disc_losses)
+    metrics['q_cont_loss'] = sum(q_cont_losses) / len(q_cont_losses)
     metrics['d_loss'] = sum(d_losses) / len(d_losses)
     metrics['g_l2_loss_abs'] = sum(g_l2_losses_abs) / loss_mask_sum
     metrics['g_l2_loss_rel'] = sum(g_l2_losses_rel) / loss_mask_sum

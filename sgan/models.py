@@ -53,9 +53,9 @@ class Encoder(nn.Module):
             torch.zeros(self.num_layers, batch, self.h_dim),
             torch.zeros(self.num_layers, batch, self.h_dim)
         )
-        return ((result[0].cuda(), result[1].cuda())
-            if torch.cuda.is_available()
-            else result)
+        if torch.cuda.is_available():
+            result = (result[0].cuda(), result[1].cuda())
+        return result
 
     def forward(self, obs_traj):
         """
