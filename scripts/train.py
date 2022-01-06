@@ -346,6 +346,7 @@ def main(args, wandb_params=None):
                 )
                 logger.info('Saving checkpoint to {}'.format(checkpoint_path))
                 torch.save(checkpoint, checkpoint_path)
+                wandb.save(checkpoint_path)
                 logger.info('Done.')
 
                 # Save a checkpoint with no model weights by making a shallow
@@ -363,6 +364,7 @@ def main(args, wandb_params=None):
                     if k not in key_blacklist:
                         small_checkpoint[k] = v
                 torch.save(small_checkpoint, checkpoint_path)
+                wandb.save(checkpoint_path)
                 logger.info('Done.')
 
             t += 1
