@@ -1,13 +1,28 @@
 import argparse
 import os
-import torch
+from pathlib import Path
 
+import torch
 from attrdict import AttrDict
 
 from sgan.data.loader import data_loader
 from sgan.models import TrajectoryGenerator
 from sgan.losses import displacement_error, final_displacement_error
 from sgan.utils import relative_to_abs, get_dset_path
+
+from infogan import (
+    get_disc_code,
+    get_cont_code,
+    get_latent_code,
+    expand_code,
+    interpolate,
+    plot_interpolations,
+)
+
+
+log_path = Path("./outputs/logs")
+log_path.mkdir(parents=True, exist_ok=True)
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_path', type=str)
@@ -36,7 +51,9 @@ def get_generator(checkpoint):
         bottleneck_dim=args.bottleneck_dim,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
-        batch_norm=args.batch_norm)
+        batch_norm=args.batch_norm,
+        latent_code_dim=sum(args.n_disc_code) + args.n_cont_code)
+
     generator.load_state_dict(checkpoint['g_state'])
     if torch.cuda.is_available():
         generator.cuda()
@@ -65,16 +82,33 @@ def evaluate(args, loader, generator, num_samples):
         for batch in loader:
             if torch.cuda.is_available():
                 batch = [tensor.cuda() for tensor in batch]
+
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
              non_linear_ped, loss_mask, seq_start_end) = batch
 
             ade, fde = [], []
             total_traj += pred_traj_gt.size(1)
 
+            batch_size = obs_traj_rel.size(1)
+            n_samples = (
+                seq_start_end.size(0)
+                if args.noise_mix_type == "global"
+                else batch_size
+            )
+
             for _ in range(num_samples):
+                disc_code = get_disc_code(n_samples, args.n_disc_code)
+                cont_code = get_cont_code(n_samples, args.n_cont_code)
+                latent_code = get_latent_code(disc_code, cont_code)
+                if args.noise_mix_type == 'global':
+                    disc_code = expand_code(disc_code, seq_start_end)
+                    cont_code = expand_code(cont_code, seq_start_end)
+
                 pred_traj_fake_rel = generator(
-                    obs_traj, obs_traj_rel, seq_start_end
+                    obs_traj, obs_traj_rel, seq_start_end,
+                    latent_code=latent_code
                 )
+
                 pred_traj_fake = relative_to_abs(
                     pred_traj_fake_rel, obs_traj[-1]
                 )
@@ -92,6 +126,36 @@ def evaluate(args, loader, generator, num_samples):
             fde_outer.append(fde_sum)
         ade = sum(ade_outer) / (total_traj * args.pred_len)
         fde = sum(fde_outer) / (total_traj)
+
+        disc_interpolations = interpolate(
+            batch,
+            args.noise_mix_type,
+            args.noise_dim,
+            args.noise_type,
+            args.n_disc_code,
+            args.n_cont_code,
+            generator,
+            fix_code_idx=0,
+            n_views=5,
+        )
+        log_path 
+        disc_fig = plot_interpolations(disc_interpolations)
+        disc_fig.savefig(os.path.join(log_path, f"disc_interpolations_eval.jpg"))
+        cont_interpolations = interpolate(
+            batch,
+            args.noise_mix_type,
+            args.noise_dim,
+            args.noise_type,
+            args.n_disc_code,
+            args.n_cont_code,
+            generator,
+            fix_code_idx=len(args.n_disc_code),
+            fix_code_range=(-2, 2),
+            n_interpolation=8,
+            n_views=5,
+        )
+        cont_fig = plot_interpolations(cont_interpolations)
+        cont_fig.savefig(os.path.join(log_path, f"cont_interpolations_eval.jpg"))
         return ade, fde
 
 

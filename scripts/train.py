@@ -412,7 +412,7 @@ def main(args, wandb_params=None):
                     args.output_dir, '%s_no_model.pt' % args.checkpoint_name)
                 logger.info('Saving checkpoint to {}'.format(checkpoint_path))
                 key_blacklist = [
-                    'g_state', 'd_state', 'dhead', 'qhead',
+                    'g_state', 'd_state', 'dhead_state', 'qhead_state',
                     'g_best_state', 'd_best_state', 'dhead_best_state', 'qhead_best_state',
                     'g_best_nl_state', 'd_best_nl_state', 'dhead_best_nl_state', 'qhead_best_nl_state',
                     'g_optim_state', 'd_optim_state'
