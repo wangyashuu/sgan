@@ -682,42 +682,40 @@ def check_accuracy(
             if limit and total_traj >= args.num_samples_check:
                 break
 
-        disc_interpolations = interpolate(
-            batch,
-            args.noise_mix_type,
-            args.noise_dim,
-            args.noise_type,
-            args.n_disc_code,
-            args.n_cont_code,
-            generator,
-            fix_code_idx=0,
-            n_views=5,
-        )
-        disc_fig = plot_interpolations(disc_interpolations)
-        disc_fig.savefig(os.path.join(log_path, f"disc_interpolations_{t}.jpg"))
+        for i in range(len(args.n_disc_code)):
+            disc_interpolations = interpolate(
+                batch,
+                args.noise_mix_type,
+                args.noise_dim,
+                args.noise_type,
+                args.n_disc_code,
+                args.n_cont_code,
+                generator,
+                fix_code_idx=i,
+                n_views=5,
+            )
+            disc_fig = plot_interpolations(disc_interpolations)
+            disc_fig.savefig(os.path.join(log_path, f"disc_interpolations_code{i}_{t}.jpg"))
+            wandb.log({f"disc_interpolations_code{i}": wandb.Image(disc_fig)})
 
-        cont_interpolations = interpolate(
-            batch,
-            args.noise_mix_type,
-            args.noise_dim,
-            args.noise_type,
-            args.n_disc_code,
-            args.n_cont_code,
-            generator,
-            fix_code_idx=len(args.n_disc_code),
-            fix_code_range=(-2, 2),
-            n_interpolation=8,
-            n_views=5,
-        )
-        cont_fig = plot_interpolations(cont_interpolations)
-        cont_fig.savefig(os.path.join(log_path, f"cont_interpolations_{t}.jpg"))
-        wandb.log({
-            "n_iteration": t,
-            # "disc_interpolations": disc_fig,
-            "disc_interpolations_image": wandb.Image(disc_fig),
-            # "cont_interpolations": cont_fig,
-            "cont_interpolations_image": wandb.Image(cont_fig),
-        })
+        for i in range(args.n_cont_code):
+            cont_interpolations = interpolate(
+                batch,
+                args.noise_mix_type,
+                args.noise_dim,
+                args.noise_type,
+                args.n_disc_code,
+                args.n_cont_code,
+                generator,
+                fix_code_idx=len(args.n_disc_code) + i,
+                fix_code_range=(-2, 2),
+                n_interpolation=10,
+                n_views=5,
+            )
+            cont_fig = plot_interpolations(cont_interpolations)
+            cont_fig.savefig(os.path.join(log_path, f"cont_interpolations_code{i}_{t}.jpg"))
+            wandb.log({f"cont_interpolations_code{i}": wandb.Image(cont_fig)})
+
 
     metrics['q_disc_loss'] = sum(q_disc_losses) / len(q_disc_losses)
     metrics['q_cont_loss'] = sum(q_cont_losses) / len(q_cont_losses)

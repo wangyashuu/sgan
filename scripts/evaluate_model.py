@@ -127,35 +127,39 @@ def evaluate(args, loader, generator, num_samples):
         ade = sum(ade_outer) / (total_traj * args.pred_len)
         fde = sum(fde_outer) / (total_traj)
 
-        disc_interpolations = interpolate(
-            batch,
-            args.noise_mix_type,
-            args.noise_dim,
-            args.noise_type,
-            args.n_disc_code,
-            args.n_cont_code,
-            generator,
-            fix_code_idx=0,
-            n_views=5,
-        )
-        log_path 
-        disc_fig = plot_interpolations(disc_interpolations)
-        disc_fig.savefig(os.path.join(log_path, f"disc_interpolations_eval.jpg"))
-        cont_interpolations = interpolate(
-            batch,
-            args.noise_mix_type,
-            args.noise_dim,
-            args.noise_type,
-            args.n_disc_code,
-            args.n_cont_code,
-            generator,
-            fix_code_idx=len(args.n_disc_code),
-            fix_code_range=(-2, 2),
-            n_interpolation=8,
-            n_views=5,
-        )
-        cont_fig = plot_interpolations(cont_interpolations)
-        cont_fig.savefig(os.path.join(log_path, f"cont_interpolations_eval.jpg"))
+        for i in range(len(args.n_disc_code)):
+            disc_interpolations = interpolate(
+                batch,
+                args.noise_mix_type,
+                args.noise_dim,
+                args.noise_type,
+                args.n_disc_code,
+                args.n_cont_code,
+                generator,
+                fix_code_idx=i,
+                n_views=5,
+            )
+            disc_fig = plot_interpolations(disc_interpolations)
+            disc_fig.savefig(os.path.join(log_path, f"disc_interpolations_code{i}_{t}.jpg"))
+            # wandb.log({f"disc_interpolations_code{i}": wandb.Image(disc_fig)})
+
+        for i in range(args.n_cont_code):
+            cont_interpolations = interpolate(
+                batch,
+                args.noise_mix_type,
+                args.noise_dim,
+                args.noise_type,
+                args.n_disc_code,
+                args.n_cont_code,
+                generator,
+                fix_code_idx=len(args.n_disc_code) + i,
+                fix_code_range=(-2, 2),
+                n_interpolation=10,
+                n_views=5,
+            )
+            cont_fig = plot_interpolations(cont_interpolations)
+            cont_fig.savefig(os.path.join(log_path, f"cont_interpolations_code{i}_{t}.jpg"))
+            # wandb.log({f"cont_interpolations_code{i}": wandb.Image(cont_fig)})
         return ade, fde
 
 
