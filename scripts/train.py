@@ -358,7 +358,7 @@ def main(args, wandb_params=None):
                 logger.info('Checking stats on train ...')
                 metrics_train = check_accuracy(
                     args, train_loader, generator, discriminator, d_loss_fn,
-                    dhead, qhead, q_loss_fn, t,
+                    dhead, qhead, q_loss_fn,
                     limit=True
                 )
 
@@ -569,11 +569,13 @@ def generator_step(
         (disc_code, cont_code),
         args.n_disc_code,
         args.n_cont_code)
+
     losses['G_q_disc_loss'] = q_disc_loss.item()
     losses['G_q_cont_loss'] = q_cont_loss.item()
 
     loss += args.lambda_disc_code * q_disc_loss
     loss += args.lambda_cont_code * q_cont_loss
+
     losses['G_total_loss'] = loss.item()
 
     optimizer_g.zero_grad()
@@ -589,7 +591,7 @@ def generator_step(
 
 def check_accuracy(
     args, loader, generator, discriminator, d_loss_fn, dhead, qhead, q_loss_fn,
-    t, limit=False
+    t=None, limit=False
 ):
     d_losses = []
     q_disc_losses, q_cont_losses = [], []
@@ -682,39 +684,41 @@ def check_accuracy(
             if limit and total_traj >= args.num_samples_check:
                 break
 
-        for i in range(len(args.n_disc_code)):
-            disc_interpolations = interpolate(
-                batch,
-                args.noise_mix_type,
-                args.noise_dim,
-                args.noise_type,
-                args.n_disc_code,
-                args.n_cont_code,
-                generator,
-                fix_code_idx=i,
-                n_views=5,
-            )
-            disc_fig = plot_interpolations(disc_interpolations)
-            disc_fig.savefig(os.path.join(log_path, f"disc_interpolations_code{i}_{t}.jpg"))
-            wandb.log({f"disc_interpolations_code{i}": wandb.Image(disc_fig)})
+        if t is not None:
+            batch = next(iter(loader))
+            for i in range(len(args.n_disc_code)):
+                disc_interpolations = interpolate(
+                    batch,
+                    args.noise_mix_type,
+                    args.noise_dim,
+                    args.noise_type,
+                    args.n_disc_code,
+                    args.n_cont_code,
+                    generator,
+                    fix_code_idx=i,
+                    n_views=5,
+                )
+                disc_fig = plot_interpolations(disc_interpolations)
+                disc_fig.savefig(os.path.join(log_path, f"disc_interpolations_code{i}_{t}.jpg"))
+                wandb.log({f"disc_interpolations_code{i}": wandb.Image(disc_fig)})
 
-        for i in range(args.n_cont_code):
-            cont_interpolations = interpolate(
-                batch,
-                args.noise_mix_type,
-                args.noise_dim,
-                args.noise_type,
-                args.n_disc_code,
-                args.n_cont_code,
-                generator,
-                fix_code_idx=len(args.n_disc_code) + i,
-                fix_code_range=(-2, 2),
-                n_interpolation=10,
-                n_views=5,
-            )
-            cont_fig = plot_interpolations(cont_interpolations)
-            cont_fig.savefig(os.path.join(log_path, f"cont_interpolations_code{i}_{t}.jpg"))
-            wandb.log({f"cont_interpolations_code{i}": wandb.Image(cont_fig)})
+            for i in range(args.n_cont_code):
+                cont_interpolations = interpolate(
+                    batch,
+                    args.noise_mix_type,
+                    args.noise_dim,
+                    args.noise_type,
+                    args.n_disc_code,
+                    args.n_cont_code,
+                    generator,
+                    fix_code_idx=len(args.n_disc_code) + i,
+                    fix_code_range=(-2, 2),
+                    n_interpolation=10,
+                    n_views=5,
+                )
+                cont_fig = plot_interpolations(cont_interpolations)
+                cont_fig.savefig(os.path.join(log_path, f"cont_interpolations_code{i}_{t}.jpg"))
+                wandb.log({f"cont_interpolations_code{i}": wandb.Image(cont_fig)})
 
 
     metrics['q_disc_loss'] = sum(q_disc_losses) / len(q_disc_losses)
