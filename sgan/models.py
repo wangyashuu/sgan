@@ -1,4 +1,5 @@
 import torch
+from torch import cuda
 import torch.nn as nn
 
 
@@ -19,9 +20,11 @@ def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
 
 def get_noise(shape, noise_type):
     if noise_type == 'gaussian':
-        return torch.randn(*shape).cuda()
+        result = torch.randn(*shape)
+        return result.cuda() if torch.cuda.is_available() else result
     elif noise_type == 'uniform':
-        return torch.rand(*shape).sub_(0.5).mul_(2.0).cuda()
+        result = torch.rand(*shape).sub_(0.5).mul_(2.0)
+        return result.cuda() if torch.cuda.is_available() else result
     raise ValueError('Unrecognized noise type "%s"' % noise_type)
 
 
@@ -46,10 +49,13 @@ class Encoder(nn.Module):
         self.spatial_embedding = nn.Linear(2, embedding_dim)
 
     def init_hidden(self, batch):
-        return (
-            torch.zeros(self.num_layers, batch, self.h_dim).cuda(),
-            torch.zeros(self.num_layers, batch, self.h_dim).cuda()
+        result = (
+            torch.zeros(self.num_layers, batch, self.h_dim),
+            torch.zeros(self.num_layers, batch, self.h_dim)
         )
+        return ((result[0].cuda(), result[1].cuda())
+            if torch.cuda.is_available()
+            else result)
 
     def forward(self, obs_traj):
         """
@@ -532,7 +538,9 @@ class TrajectoryGenerator(nn.Module):
 
         decoder_c = torch.zeros(
             self.num_layers, batch, self.decoder_h_dim
-        ).cuda()
+        )
+        if torch.cuda.is_available():
+            decoder_c = decoder_c.cuda()
 
         state_tuple = (decoder_h, decoder_c)
         last_pos = obs_traj[-1]
