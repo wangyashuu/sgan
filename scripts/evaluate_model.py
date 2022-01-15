@@ -140,7 +140,7 @@ def evaluate(args, loader, generator, num_samples):
                 n_views=5,
             )
             disc_fig = plot_interpolations(disc_interpolations)
-            disc_fig.savefig(os.path.join(log_path, f"disc_interpolations_code{i}_{t}.jpg"))
+            disc_fig.savefig(os.path.join(log_path, f"disc_interpolations_code{i}.jpg"))
             # wandb.log({f"disc_interpolations_code{i}": wandb.Image(disc_fig)})
 
         for i in range(args.n_cont_code):
@@ -158,7 +158,7 @@ def evaluate(args, loader, generator, num_samples):
                 n_views=5,
             )
             cont_fig = plot_interpolations(cont_interpolations)
-            cont_fig.savefig(os.path.join(log_path, f"cont_interpolations_code{i}_{t}.jpg"))
+            cont_fig.savefig(os.path.join(log_path, f"cont_interpolations_code{i}.jpg"))
             # wandb.log({f"cont_interpolations_code{i}": wandb.Image(cont_fig)})
         return ade, fde
 
