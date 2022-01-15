@@ -686,6 +686,8 @@ def check_accuracy(
 
         if t is not None:
             batch = next(iter(loader))
+            if torch.cuda.is_available():
+                batch = [tensor.cuda() for tensor in batch]
             for i in range(len(args.n_disc_code)):
                 disc_interpolations = interpolate(
                     batch,
