@@ -472,7 +472,7 @@ def discriminator_step(
     q_info = qhead(discriminator_out_fake)
 
     discriminator_out_real = discriminator(traj_real, traj_real_rel, seq_start_end)
-    scores_real = dhead(discriminator_out_fake)
+    scores_real = dhead(discriminator_out_real)
 
     # Compute loss with optional gradient penalty
     data_loss = d_loss_fn(scores_real, scores_fake)
@@ -653,7 +653,7 @@ def check_accuracy(
             scores_fake = dhead(discriminator_out_fake)
 
             discriminator_out_real = discriminator(traj_real, traj_real_rel, seq_start_end)
-            scores_real = dhead(discriminator_out_fake)
+            scores_real = dhead(discriminator_out_real)
 
             q_info = qhead(discriminator_out_fake)
             q_disc_loss, q_cont_loss  = q_loss_fn(
