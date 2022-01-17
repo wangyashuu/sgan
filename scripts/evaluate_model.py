@@ -10,15 +10,13 @@ from sgan.models import TrajectoryGenerator
 from sgan.losses import displacement_error, final_displacement_error
 from sgan.utils import relative_to_abs, get_dset_path
 
-from infogan import (
+from infogan.codes import (
     get_disc_code,
     get_cont_code,
     get_latent_code,
     expand_code,
-    interpolate,
-    plot_interpolations,
 )
-
+from infogan.traversals import interpolate, plot_interpolations
 
 log_path = Path("./outputs/logs")
 log_path.mkdir(parents=True, exist_ok=True)

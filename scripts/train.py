@@ -21,17 +21,16 @@ from sgan.models import TrajectoryGenerator, TrajectoryDiscriminator
 from sgan.utils import int_tuple, bool_flag, get_total_norm
 from sgan.utils import relative_to_abs, get_dset_path
 
-from infogan import (
-    DHead,
-    QHead,
-    q_loss_fn,
+from infogan.models import DHead, QHead
+from infogan.losses import q_loss_fn
+from infogan.codes import (
     get_disc_code,
     get_cont_code,
     get_latent_code,
-    expand_code,
-    interpolate,
-    plot_interpolations,
+    expand_code
 )
+from infogan.traversals import interpolate, plot_interpolations
+
 
 log_path = Path("./outputs/logs")
 log_path.mkdir(parents=True, exist_ok=True)
