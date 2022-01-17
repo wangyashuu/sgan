@@ -30,6 +30,12 @@ from infogan.codes import (
     expand_code
 )
 from infogan.traversals import interpolate, plot_interpolations
+from infogan.regularizations import (
+    resample_each_cont_code,
+    resample_each_disc_code,
+    cosine_similarity_loss,
+    soft_orthogonal_regularization_loss,
+)
 
 
 log_path = Path("./outputs/logs")
@@ -119,6 +125,9 @@ parser.add_argument('--n_disc_code', default=(10,), type=int_tuple)
 parser.add_argument('--n_cont_code', default=1, type=int)
 parser.add_argument('--lambda_disc_code', default=1e-1, type=float)
 parser.add_argument('--lambda_cont_code', default=1e-1, type=float)
+parser.add_argument('--info_reg_fn', default=None, type=str)
+parser.add_argument('--lambda_info_disc_reg', default=0, type=float)
+parser.add_argument('--lambda_info_cont_reg', default=1e-1, type=float)
 
 
 def init_weights(m):
@@ -514,7 +523,10 @@ def generator_step(
     loss_mask = loss_mask[:, args.obs_len:]
 
     batch_size = obs_traj_rel.size(1)
-    n_samples = seq_start_end.size(0) if args.noise_mix_type == 'global' else batch_size
+    n_samples = (
+        seq_start_end.size(0)
+        if args.noise_mix_type == 'global'
+        else batch_size)
 
     for _ in range(args.best_k):
         disc_code = get_disc_code(n_samples, args.n_disc_code)
@@ -539,6 +551,55 @@ def generator_step(
                 pred_traj_gt_rel,
                 loss_mask,
                 mode='raw'))
+
+    if args.info_reg_fn is not None:
+        info_reg_fn = (
+            soft_orthogonal_regularization_loss
+            if args.info_reg_fn == 'so'
+            else cosine_similarity_loss)
+        sampled_disc_code = get_disc_code(n_samples, args.n_disc_code)
+        sampled_cont_code = get_cont_code(n_samples, args.n_cont_code)
+        sampled_latent_code = get_latent_code(
+            sampled_disc_code, sampled_cont_code)
+
+        # TODO: it should be no different with same noise or different noise
+        user_noise = get_noise((1,) + args.noise_dim, args.noise_type)
+        user_noise = user_noise.repeat(n_samples, 1)
+
+        sampled_generator_out = generator(
+            obs_traj,
+            obs_traj_rel,
+            seq_start_end,
+            user_noise=user_noise,
+            latent_code=sampled_latent_code)
+
+        if args.lambda_info_disc_reg > 0:
+            resampled_disc_code = resample_each_disc_code(
+                sampled_disc_code, args.n_disc_code)
+            resampled_disc_generator_out = generator(
+                obs_traj,
+                obs_traj_rel,
+                seq_start_end,
+                user_noise=user_noise,
+                latent_code=get_latent_code(resampled_disc_code, sampled_cont_code))
+            disc_reg_info_loss = info_reg_fn(
+                sampled_generator_out, resampled_disc_generator_out)
+            losses['G_q_disc_reg_loss'] = disc_reg_info_loss
+            loss += args.lambda_info_disc_reg * disc_reg_info_loss
+
+        if args.lambda_info_cont_reg > 0:
+            resampled_cont_code = resample_each_cont_code(
+                sampled_cont_code, args.n_cont_code)
+            resampled_cont_generator_out = generator(
+                obs_traj,
+                obs_traj_rel,
+                seq_start_end,
+                user_noise=user_noise,
+                latent_code=get_latent_code(sampled_disc_code, resampled_cont_code))
+            cont_reg_info_loss = info_reg_fn(
+                sampled_generator_out, resampled_cont_generator_out)
+            losses['G_q_cont_reg_loss'] = cont_reg_info_loss
+            loss += args.lambda_info_cont_reg * cont_reg_info_loss
 
     g_l2_loss_sum_rel = torch.zeros(1).to(pred_traj_gt)
     if args.l2_loss_weight > 0:
