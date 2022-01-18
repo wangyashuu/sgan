@@ -58,3 +58,13 @@ def cosine_similarity_loss(sampled, resampled):
     return torch.mean(
         torch.nn.functional.cosine_similarity(sampled, resampled)
     )
+
+def euclidean_distance_loss(sampled, resampled):
+    batch_size = sampled.size(1)
+    sampled = torch.transpose(sampled, 0, 1).reshape(batch_size, -1)
+    resampled = torch.transpose(resampled, 0, 1).reshape(batch_size, -1)
+    n = sampled.size(1)
+    return torch.norm(sampled - resampled) / n
+    # return torch.mean(
+    #     torch.nn.functional.pairwise_distance(sampled, resampled)
+    # )

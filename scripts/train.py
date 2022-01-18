@@ -31,6 +31,7 @@ from infogan.codes import (
 )
 from infogan.traversals import interpolate, plot_interpolations
 from infogan.regularizations import (
+    euclidean_distance_loss,
     resample_each_cont_code,
     resample_each_disc_code,
     cosine_similarity_loss,
@@ -553,10 +554,12 @@ def generator_step(
                 mode='raw'))
 
     if args.info_reg_fn is not None:
-        info_reg_fn = (
-            soft_orthogonal_regularization_loss
-            if args.info_reg_fn == 'so'
-            else cosine_similarity_loss)
+
+        info_reg_fn = euclidean_distance_loss
+        if args.info_reg_fn == 'so':
+            info_reg_fn = soft_orthogonal_regularization_loss
+        elif args.info_reg_fn == 'cosine':
+            info_reg_fn = cosine_similarity_loss
         sampled_disc_code = get_disc_code(n_samples, args.n_disc_code)
         sampled_cont_code = get_cont_code(n_samples, args.n_cont_code)
         sampled_latent_code = get_latent_code(
