@@ -591,16 +591,23 @@ def generator_step(
             loss += args.lambda_info_disc_reg * disc_reg_info_loss
 
         if args.lambda_info_cont_reg > 0:
-            resampled_cont_code = resample_each_cont_code(
+            cont_code_1, cont_code_2 = resample_each_cont_code(
                 sampled_cont_code, args.n_cont_code)
-            resampled_cont_generator_out = generator(
+            cont_generator_out_1 = generator(
                 obs_traj,
                 obs_traj_rel,
                 seq_start_end,
                 user_noise=user_noise,
-                latent_code=get_latent_code(sampled_disc_code, resampled_cont_code))
+                latent_code=get_latent_code(sampled_disc_code, cont_code_1))
+            cont_generator_out_2 = generator(
+                obs_traj,
+                obs_traj_rel,
+                seq_start_end,
+                user_noise=user_noise,
+                latent_code=get_latent_code(sampled_disc_code, cont_code_2))
             cont_reg_info_loss = info_reg_fn(
-                sampled_generator_out, resampled_cont_generator_out)
+                sampled_generator_out - cont_generator_out_1,
+                sampled_generator_out - cont_generator_out_2)
             losses['G_q_cont_reg_loss'] = cont_reg_info_loss
             loss += args.lambda_info_cont_reg * cont_reg_info_loss
 

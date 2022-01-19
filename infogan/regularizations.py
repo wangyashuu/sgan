@@ -3,18 +3,15 @@ import numpy as np
 
 
 def resample_each_cont_code(cont_code, n_cont_code):
-    cont_code = cont_code.clone()
-    ids = np.random.choice(n_cont_code, cont_code.size(0))
+    first_cont_code = cont_code.clone()
+    second_cont_code = cont_code.clone()
+    first_ids = np.random.choice(n_cont_code, cont_code.size(0))
+    second_ids = (first_ids + 1) % n_cont_code
+
     for i in range(n_cont_code):
-        # TODO: might random a different cont
-        np.random.choice(5, 3)
-        compared_idx = np.random.randint(0, n_cont_code - 1)
-        if compared_idx == i:
-            compared_idx += 1
-        original_vals = cont_code[ids == i, i]
-        cont_code[ids == i, i] = cont_code[ids == i, compared_idx]
-        cont_code[ids == i, compared_idx] = original_vals
-    return cont_code
+        first_cont_code[first_ids == i, i] += 1
+        second_cont_code[second_ids == i, i] += 1
+    return first_cont_code, second_cont_code
 
 
 def resample_each_disc_code(disc_code, n_disc_code):
@@ -48,7 +45,7 @@ def soft_orthogonal_regularization_loss(sampled, resampled):
     n = sampled.size(1)
     # https://proceedings.neurips.cc/paper/2018/file/bf424cb7b0dea050a42b9739eb261a3a-Paper.pdf
     # W^T@W, W(m, n) orthogonal iff m > n
-    return torch.norm(sampled.T @ resampled - torch.eye(n)) / (n * n)
+    return torch.norm(sampled.T @ resampled - torch.eye(n).to(sampled)) / (n * n)
 
 
 def cosine_similarity_loss(sampled, resampled):
@@ -65,12 +62,12 @@ def cosine_similarity_loss(sampled, resampled):
         torch.nn.functional.cosine_similarity(sampled, resampled)
     )
 
-# def euclidean_distance_loss(sampled, resampled):
-#     batch_size = sampled.size(1)
-#     sampled = torch.transpose(sampled, 0, 1).reshape(batch_size, -1)
-#     resampled = torch.transpose(resampled, 0, 1).reshape(batch_size, -1)
-#     norm = torch.norm(sampled - resampled)
-#     return 1 / (norm + 1)
-#     # return torch.mean(
-#     #     torch.nn.functional.pairwise_distance(sampled, resampled)
-#     # )
+def euclidean_distance_loss(sampled, resampled):
+    batch_size = sampled.size(1)
+    sampled = torch.transpose(sampled, 0, 1).reshape(batch_size, -1)
+    resampled = torch.transpose(resampled, 0, 1).reshape(batch_size, -1)
+    norm = torch.norm(sampled - resampled)
+    return 1 / (norm + 1)
+    # return torch.mean(
+    #     torch.nn.functional.pairwise_distance(sampled, resampled)
+    # )
