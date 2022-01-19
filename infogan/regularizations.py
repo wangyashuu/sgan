@@ -7,7 +7,13 @@ def resample_each_cont_code(cont_code, n_cont_code):
     ids = np.random.choice(n_cont_code, cont_code.size(0))
     for i in range(n_cont_code):
         # TODO: might random a different cont
-        cont_code[ids == i, i] = cont_code[ids == i, i] + 1
+        np.random.choice(5, 3)
+        compared_idx = np.random.randint(0, n_cont_code - 1)
+        if compared_idx == i:
+            compared_idx += 1
+        original_vals = cont_code[ids == i, i]
+        cont_code[ids == i, i] = cont_code[ids == i, compared_idx]
+        cont_code[ids == i, compared_idx] = original_vals
     return cont_code
 
 
@@ -59,12 +65,12 @@ def cosine_similarity_loss(sampled, resampled):
         torch.nn.functional.cosine_similarity(sampled, resampled)
     )
 
-def euclidean_distance_loss(sampled, resampled):
-    batch_size = sampled.size(1)
-    sampled = torch.transpose(sampled, 0, 1).reshape(batch_size, -1)
-    resampled = torch.transpose(resampled, 0, 1).reshape(batch_size, -1)
-    n = sampled.size(1)
-    return torch.norm(sampled - resampled) / n
-    # return torch.mean(
-    #     torch.nn.functional.pairwise_distance(sampled, resampled)
-    # )
+# def euclidean_distance_loss(sampled, resampled):
+#     batch_size = sampled.size(1)
+#     sampled = torch.transpose(sampled, 0, 1).reshape(batch_size, -1)
+#     resampled = torch.transpose(resampled, 0, 1).reshape(batch_size, -1)
+#     norm = torch.norm(sampled - resampled)
+#     return 1 / (norm + 1)
+#     # return torch.mean(
+#     #     torch.nn.functional.pairwise_distance(sampled, resampled)
+#     # )
