@@ -6,7 +6,7 @@ import torch
 from attrdict import AttrDict
 
 from sgan.data.loader import data_loader
-from sgan.models import TrajectoryGenerator
+from sgan.models import TrajectoryGenerator, get_noise
 from sgan.losses import displacement_error, final_displacement_error
 from sgan.utils import relative_to_abs, get_dset_path
 
@@ -125,17 +125,17 @@ def evaluate(args, loader, generator, num_samples):
         ade = sum(ade_outer) / (total_traj * args.pred_len)
         fde = sum(fde_outer) / (total_traj)
 
+        user_noise = get_noise((1,) + args.noise_dim, args.noise_type)
         for i in range(len(args.n_disc_code)):
             disc_interpolations = interpolate(
                 batch,
                 args.noise_mix_type,
-                args.noise_dim,
-                args.noise_type,
                 args.n_disc_code,
                 args.n_cont_code,
                 generator,
+                user_noise,
                 fix_code_idx=i,
-                n_views=5,
+                n_views=10,
             )
             disc_fig = plot_interpolations(disc_interpolations)
             disc_fig.savefig(os.path.join(log_path, f"disc_interpolations_code{i}.jpg"))
@@ -150,10 +150,11 @@ def evaluate(args, loader, generator, num_samples):
                 args.n_disc_code,
                 args.n_cont_code,
                 generator,
+                user_noise,
                 fix_code_idx=len(args.n_disc_code) + i,
                 fix_code_range=(-2, 2),
                 n_interpolation=10,
-                n_views=5,
+                n_views=10,
             )
             cont_fig = plot_interpolations(cont_interpolations)
             cont_fig.savefig(os.path.join(log_path, f"cont_interpolations_code{i}.jpg"))

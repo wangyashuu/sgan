@@ -27,11 +27,10 @@ def set_fix_code(latent_code, n_disc_code, fix_code):
 def interpolate(
     batch,
     noise_mix_type,
-    noise_dim,
-    noise_type,
     n_disc_code,
     n_cont_code,
     generator,
+    user_noise,
     fix_code_idx,
     n_interpolation=8,
     fix_code_range=(-2, 2),
@@ -53,9 +52,7 @@ def interpolate(
         seq_start_end.size(0) if noise_mix_type == "global" else batch_size
     )
 
-    user_noise = get_noise((1,) + noise_dim, noise_type)
     user_noise = user_noise.repeat(n_samples, 1)
-
     disc_code = get_disc_code(1, n_disc_code)
     cont_code = get_cont_code(1, n_cont_code)
     latent_code = get_latent_code(disc_code, cont_code)
@@ -109,14 +106,14 @@ def plot_interpolations(interpolations):
     interpolations: list of tuples.
                     elem of tuple has size (traj_len, batch_size, 2)
     """
-    fig = plt.figure(figsize=(32, 18))
-    # fig.tight_layout()
+    n_views = interpolations[0][0].size(1)
+    n_interpolations = len(interpolations)
+    fig = plt.figure(figsize=(n_interpolations*3.2, n_views * 3.2))
     fig.subplots_adjust(
         bottom=0.05, top=0.95, left=0.05, right=0.95, wspace=0, hspace=0
     )
-    n_views = interpolations[0][0].size(1)
     # axs = gs.subplots(sharex=True, sharey=True)
-    gs = fig.add_gridspec(n_views, len(interpolations), hspace=0, wspace=0)
+    gs = fig.add_gridspec(n_views, n_interpolations, hspace=0, wspace=0)
     for i, axs in enumerate(gs.subplots(sharex="col", sharey="row")):
         for j, ax in enumerate(axs):
             traj_obs, traj_real, traj_fake = interpolations[j]

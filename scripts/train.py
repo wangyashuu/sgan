@@ -687,15 +687,16 @@ def check_accuracy(
             batch = next(iter(loader))
             if torch.cuda.is_available():
                 batch = [tensor.cuda() for tensor in batch]
+
+            user_noise = get_noise((1,) + args.noise_dim, args.noise_type)
             for i in range(len(args.n_disc_code)):
                 disc_interpolations = interpolate(
                     batch,
                     args.noise_mix_type,
-                    args.noise_dim,
-                    args.noise_type,
                     args.n_disc_code,
                     args.n_cont_code,
                     generator,
+                    user_noise,
                     fix_code_idx=i,
                     n_views=5,
                 )
@@ -707,11 +708,10 @@ def check_accuracy(
                 cont_interpolations = interpolate(
                     batch,
                     args.noise_mix_type,
-                    args.noise_dim,
-                    args.noise_type,
                     args.n_disc_code,
                     args.n_cont_code,
                     generator,
+                    user_noise,
                     fix_code_idx=len(args.n_disc_code) + i,
                     fix_code_range=(-2, 2),
                     n_interpolation=10,
