@@ -4,10 +4,12 @@ import logging
 import os
 import sys
 import time
+import random
 from pathlib import Path
 
 from collections import defaultdict
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -37,6 +39,7 @@ from infogan.regularizations import (
     cosine_similarity_loss,
     soft_orthogonal_regularization_loss,
 )
+
 
 
 log_path = Path("./outputs/logs")
@@ -148,6 +151,12 @@ def get_dtypes(args):
 
 def main(args, wandb_params=None):
     run =  wandb.init(config=args, **(wandb_params or dict(mode = 'disabled')))
+
+    seed = 2021
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
     train_path = get_dset_path(args.dataset_name, 'train')
@@ -576,38 +585,27 @@ def generator_step(
             user_noise=user_noise,
             latent_code=sampled_latent_code)
 
-        if args.lambda_info_disc_reg > 0:
-            resampled_disc_code = resample_each_disc_code(
-                sampled_disc_code, args.n_disc_code)
-            resampled_disc_generator_out = generator(
-                obs_traj,
-                obs_traj_rel,
-                seq_start_end,
-                user_noise=user_noise,
-                latent_code=get_latent_code(resampled_disc_code, sampled_cont_code))
-            disc_reg_info_loss = info_reg_fn(
-                sampled_generator_out, resampled_disc_generator_out)
-            losses['G_q_disc_reg_loss'] = disc_reg_info_loss
-            loss += args.lambda_info_disc_reg * disc_reg_info_loss
-
         if args.lambda_info_cont_reg > 0:
-            cont_code_1, cont_code_2 = resample_each_cont_code(
+            codes = resample_each_cont_code(
                 sampled_cont_code, args.n_cont_code)
-            cont_generator_out_1 = generator(
-                obs_traj,
-                obs_traj_rel,
-                seq_start_end,
-                user_noise=user_noise,
-                latent_code=get_latent_code(sampled_disc_code, cont_code_1))
-            cont_generator_out_2 = generator(
-                obs_traj,
-                obs_traj_rel,
-                seq_start_end,
-                user_noise=user_noise,
-                latent_code=get_latent_code(sampled_disc_code, cont_code_2))
-            cont_reg_info_loss = info_reg_fn(
-                sampled_generator_out - cont_generator_out_1,
-                sampled_generator_out - cont_generator_out_2)
+            gens = [
+                generator(
+                    obs_traj,
+                    obs_traj_rel,
+                    seq_start_end,
+                    user_noise=user_noise,
+                    latent_code=get_latent_code(sampled_disc_code, c))
+                for c in codes
+            ]
+
+            cont_reg_info_loss = 0
+            for i in range(args.n_cont_code):
+                for j in range(args.n_cont_code):
+                    if i != j:
+                        cont_reg_info_loss += info_reg_fn(
+                            (sampled_generator_out - gens[i]) / 1e-8,
+                            (sampled_generator_out - gens[j]) / 1e-8)
+
             losses['G_q_cont_reg_loss'] = cont_reg_info_loss
             loss += args.lambda_info_cont_reg * cont_reg_info_loss
 

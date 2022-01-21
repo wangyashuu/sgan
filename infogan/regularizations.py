@@ -2,16 +2,12 @@ import torch
 import numpy as np
 
 
-def resample_each_cont_code(cont_code, n_cont_code):
-    first_cont_code = cont_code.clone()
-    second_cont_code = cont_code.clone()
-    first_ids = np.random.choice(n_cont_code, cont_code.size(0))
-    second_ids = (first_ids + 1) % n_cont_code
-
+def resample_each_cont_code(cont_code, n_cont_code, epsilon=1e-8):
+    codes = []
     for i in range(n_cont_code):
-        first_cont_code[first_ids == i, i] += 1
-        second_cont_code[second_ids == i, i] += 1
-    return first_cont_code, second_cont_code
+        code_i = cont_code.clone()
+        code_i[:, i] += epsilon
+    return codes
 
 
 def resample_each_disc_code(disc_code, n_disc_code):
@@ -45,7 +41,21 @@ def soft_orthogonal_regularization_loss(sampled, resampled):
     n = sampled.size(1)
     # https://proceedings.neurips.cc/paper/2018/file/bf424cb7b0dea050a42b9739eb261a3a-Paper.pdf
     # W^T@W, W(m, n) orthogonal iff m > n
-    return torch.norm(sampled.T @ resampled - torch.eye(n).to(sampled)) / (n * n)
+    return torch.norm(sampled.T @ resampled - torch.eye(n).to(sampled)) / (
+        n * n
+    )
+
+
+def cosine_similarity(a, b, epsilon=1e-8):
+    inner_product_ab = torch.sum(a * b)
+    inner_product_aa = torch.sum(a * a)
+    inner_product_bb = torch.sum(b * b)
+    return inner_product_ab / (
+        torch.max(
+            torch.sqrt(inner_product_aa) * torch.sqrt(inner_product_bb),
+            torch.tensor(epsilon).to(a),
+        )
+    )
 
 
 def cosine_similarity_loss(sampled, resampled):
@@ -56,11 +66,19 @@ def cosine_similarity_loss(sampled, resampled):
               shape(traj_len, batch_size, 2)
     """
     batch_size = sampled.size(1)
-    sampled = torch.transpose(sampled, 0, 1).reshape(batch_size, -1)
-    resampled = torch.transpose(resampled, 0, 1).reshape(batch_size, -1)
-    return torch.mean(
-        torch.nn.functional.cosine_similarity(sampled, resampled)
+    sampled = torch.transpose(sampled, 0, 1)  # batch_size, traj_len, 2
+    resampled = torch.transpose(resampled, 0, 1)
+    cos_batches = torch.tensor(
+        [
+            cosine_similarity(sampled[i], resampled[i])
+            for i in range(batch_size)
+        ]
     )
+    return torch.mean(torch.abs(cos_batches))
+    # return torch.mean(
+    #     torch.nn.functional.cosine_similarity(sampled, resampled)
+    # )
+
 
 def euclidean_distance_loss(sampled, resampled):
     batch_size = sampled.size(1)
