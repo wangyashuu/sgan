@@ -7,6 +7,7 @@ def resample_each_cont_code(cont_code, n_cont_code, epsilon=1e-8):
     for i in range(n_cont_code):
         code_i = cont_code.clone()
         code_i[:, i] += epsilon
+        codes.append(code_i)
     return codes
 
 
