@@ -586,8 +586,9 @@ def generator_step(
             latent_code=sampled_latent_code)
 
         if args.lambda_info_cont_reg > 0:
+            epsilon = 1e-8
             codes = resample_each_cont_code(
-                sampled_cont_code, args.n_cont_code)
+                sampled_cont_code, args.n_cont_code, epsilon)
             gens = [
                 generator(
                     obs_traj,
@@ -603,8 +604,8 @@ def generator_step(
                 for j in range(args.n_cont_code):
                     if i != j:
                         cont_reg_info_loss += info_reg_fn(
-                            (sampled_generator_out - gens[i]) / 1e-8,
-                            (sampled_generator_out - gens[j]) / 1e-8)
+                            (sampled_generator_out - gens[i]) / epsilon,
+                            (sampled_generator_out - gens[j]) / epsilon)
 
             losses['G_q_cont_reg_loss'] = cont_reg_info_loss
             loss += args.lambda_info_cont_reg * cont_reg_info_loss
