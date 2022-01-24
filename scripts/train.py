@@ -133,6 +133,8 @@ parser.add_argument('--info_reg_fn', default=None, type=str)
 parser.add_argument('--lambda_info_disc_reg', default=0, type=float)
 parser.add_argument('--lambda_info_cont_reg', default=1e-1, type=float)
 
+parser.add_argument('--seed', default=2021, type=int)
+
 
 def init_weights(m):
     classname = m.__class__.__name__
@@ -152,7 +154,7 @@ def get_dtypes(args):
 def main(args, wandb_params=None):
     run =  wandb.init(config=args, **(wandb_params or dict(mode = 'disabled')))
 
-    seed = 2021
+    seed = args.seed
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -585,8 +587,10 @@ def generator_step(
             user_noise=user_noise,
             latent_code=sampled_latent_code)
 
+        generator
         if args.lambda_info_cont_reg > 0:
-            epsilon = 1e-8
+            epsilon = 1e-6
+            encoded_sampled = generator.encoder(sampled_generator_out)
             codes = resample_each_cont_code(
                 sampled_cont_code, args.n_cont_code, epsilon)
             gens = [
@@ -599,13 +603,14 @@ def generator_step(
                 for c in codes
             ]
 
+            gens = [generator.encoder(g) for g in gens]
             cont_reg_info_loss = 0
             for i in range(args.n_cont_code):
                 for j in range(args.n_cont_code):
                     if i != j:
                         cont_reg_info_loss += info_reg_fn(
-                            (sampled_generator_out - gens[i]) / epsilon,
-                            (sampled_generator_out - gens[j]) / epsilon)
+                            (encoded_sampled - gens[i]) / 2*epsilon,
+                            (encoded_sampled - gens[j]) / 2*epsilon)
 
             losses['G_q_cont_reg_loss'] = cont_reg_info_loss
             loss += args.lambda_info_cont_reg * cont_reg_info_loss

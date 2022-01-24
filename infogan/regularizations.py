@@ -59,6 +59,10 @@ def cosine_similarity(a, b, epsilon=1e-8):
     )
 
 
+def cosine_similarity_points(a, b):
+    return torch.mean(torch.abs(torch.nn.functional.cosine_similarity(a, b)))
+
+
 def cosine_similarity_loss(sampled, resampled):
     """
     sampled: the prediction of code before resample,
@@ -69,15 +73,17 @@ def cosine_similarity_loss(sampled, resampled):
     batch_size = sampled.size(1)
     sampled = torch.transpose(sampled, 0, 1)  # batch_size, traj_len, 2
     resampled = torch.transpose(resampled, 0, 1)
+    # torch.sum(sampled[i] * resampled[i])
+    # cosine_similarity(sampled[i], resampled[i])
     cos_batches = torch.tensor(
         [
-            cosine_similarity(sampled[i], resampled[i])
+            cosine_similarity_points(sampled[i], resampled[i])
             for i in range(batch_size)
         ]
     )
     return torch.mean(torch.abs(cos_batches))
     # return torch.mean(
-    #     torch.nn.functional.cosine_similarity(sampled, resampled)
+    #     torch.abs(torch.nn.functional.cosine_similarity(sampled, resampled))
     # )
 
 
