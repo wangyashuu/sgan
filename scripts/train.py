@@ -19,7 +19,13 @@ from sgan.data.loader import data_loader
 from sgan.losses import gan_g_loss, gan_d_loss, l2_loss
 from sgan.losses import displacement_error, final_displacement_error
 
-from sgan.models import TrajectoryGenerator, TrajectoryDiscriminator, get_noise
+from sgan.models import (
+    TrajectoryGenerator,
+    TrajectoryDiscriminator,
+    Encoder,
+    Decoder,
+    get_noise
+)
 from sgan.utils import int_tuple, bool_flag, get_total_norm
 from sgan.utils import relative_to_abs, get_dset_path
 
@@ -151,8 +157,99 @@ def get_dtypes(args):
     return long_dtype, float_dtype
 
 
+def train_autoencoder(args, train_loader, val_loader, n_epochs, eval_every=1):
+
+    encoder = Encoder(
+        embedding_dim=args.embedding_dim,
+        h_dim=args.encoder_h_dim_g,
+        mlp_dim=args.mlp_dim,
+        num_layers=args.num_layers,
+        dropout=args.dropout
+    )
+
+    decoder = Decoder(
+        args.obs_len,
+        embedding_dim=args.embedding_dim,
+        h_dim=args.decoder_h_dim_g,
+        mlp_dim=args.mlp_dim,
+        num_layers=args.num_layers,
+        bottleneck_dim=args.bottleneck_dim,
+        activation='relu',
+        dropout=args.dropout,
+        batch_norm=args.batch_norm,
+        pool_every_timestep=False,
+        # grid_size=grid_size,
+        # pooling_type=pooling_type,
+        # neighborhood_size=neighborhood_size
+    )
+
+    optimizer = optim.Adam(
+        list(encoder.parameters()) + list(decoder.parameters()),
+        lr=args.g_learning_rate / 1)
+    criterion = nn.MSELoss()
+
+    for i in range(n_epochs):
+        running_loss = 0
+        encoder.train()
+        decoder.train()
+        for batch in train_loader:
+            if torch.cuda.is_available():
+                batch = [tensor.cuda() for tensor in batch]
+            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
+                loss_mask, seq_start_end) = batch
+            
+            optimizer.zero_grad()
+            batch_size = obs_traj_rel.size(1)
+            encoder_out = encoder(obs_traj_rel)
+            decoder_c = torch.zeros(
+                args.num_layers, batch_size, args.decoder_h_dim_g
+            ).to(obs_traj_rel)
+
+            decoder_out = decoder(
+                last_pos=obs_traj[0],
+                last_pos_rel=torch.zeros_like(obs_traj_rel[0]),
+                state_tuple=(encoder_out, decoder_c),
+                seq_start_end=seq_start_end,
+            )
+            pred_traj_fake_rel, _ = decoder_out
+            loss = criterion(pred_traj_fake_rel, obs_traj_rel)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+        wandb.log({"train_loss": running_loss / len(train_loader)})
+
+        if i % eval_every == eval_every - 1:
+            encoder.eval()
+            decoder.eval()
+            with torch.no_grad():
+                running_loss = 0
+                for batch in val_loader:
+                    if torch.cuda.is_available():
+                        batch = [tensor.cuda() for tensor in batch]
+                    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
+                        loss_mask, seq_start_end) = batch
+
+                    batch_size = obs_traj_rel.size(1)
+                    encoder_out = encoder(obs_traj_rel)
+                    decoder_c = torch.zeros(
+                        args.num_layers, batch_size, args.decoder_h_dim_g
+                    ).to(obs_traj_rel)
+
+                    decoder_out = decoder(
+                        last_pos=obs_traj[0],
+                        last_pos_rel=torch.zeros_like(obs_traj_rel[0]),
+                        state_tuple=(encoder_out, decoder_c),
+                        seq_start_end=seq_start_end,
+                    )
+                    pred_traj_fake_rel, _ = decoder_out
+                    loss = criterion(pred_traj_fake_rel, obs_traj_rel)
+                    running_loss += loss.item()
+                wandb.log({"eval_loss": running_loss / len(val_loader)})
+
+    return encoder, decoder
+
+
 def main(args, wandb_params=None):
-    run =  wandb.init(config=args, **(wandb_params or dict(mode = 'disabled')))
 
     seed = args.seed
     random.seed(seed)
@@ -178,7 +275,13 @@ def main(args, wandb_params=None):
     logger.info(
         'There are {} iterations per epoch'.format(iterations_per_epoch)
     )
+    run = wandb.init(config=args, group="autoencoder",
+        **(wandb_params or dict(mode = 'disabled')))
+    encoder, _ = train_autoencoder(args, train_loader, val_loader, n_epochs=120)
+    run.finish()
 
+    run = wandb.init(config=args,
+        **(wandb_params or dict(mode = 'disabled')))
     generator = TrajectoryGenerator(
         obs_len=args.obs_len,
         pred_len=args.pred_len,
@@ -327,7 +430,7 @@ def main(args, wandb_params=None):
                 step_type = 'g'
                 losses_g = generator_step(args, batch, generator,
                                           discriminator, g_loss_fn,
-                                          optimizer_g, dhead, qhead, q_loss_fn)
+                                          optimizer_g, dhead, qhead, q_loss_fn, encoder)
                 checkpoint['norm_g'].append(
                     get_total_norm(generator.parameters())
                 )
@@ -523,6 +626,7 @@ def discriminator_step(
 
 def generator_step(
     args, batch, generator, discriminator, g_loss_fn, optimizer_g, dhead, qhead, q_loss_fn,
+    encoder
 ):
     if torch.cuda.is_available():
         batch = [tensor.cuda() for tensor in batch]
@@ -587,7 +691,6 @@ def generator_step(
             user_noise=user_noise,
             latent_code=sampled_latent_code)
 
-        generator
         if args.lambda_info_cont_reg > 0:
             epsilon = 1e-6
             encoded_sampled = generator.encoder(sampled_generator_out)
@@ -603,14 +706,14 @@ def generator_step(
                 for c in codes
             ]
 
-            gens = [generator.encoder(g) for g in gens]
+            gens = [encoder(g) for g in gens]
             cont_reg_info_loss = 0
             for i in range(args.n_cont_code):
                 for j in range(args.n_cont_code):
                     if i != j:
                         cont_reg_info_loss += info_reg_fn(
-                            (encoded_sampled - gens[i]) / 2*epsilon,
-                            (encoded_sampled - gens[j]) / 2*epsilon)
+                            (gens[i] - encoded_sampled) / 2*epsilon,
+                            (gens[j] - encoded_sampled) / 2*epsilon)
 
             losses['G_q_cont_reg_loss'] = cont_reg_info_loss
             loss += args.lambda_info_cont_reg * cont_reg_info_loss

@@ -70,21 +70,27 @@ def cosine_similarity_loss(sampled, resampled):
     resampled: the prediction of code with resample,
               shape(traj_len, batch_size, 2)
     """
-    batch_size = sampled.size(1)
-    sampled = torch.transpose(sampled, 0, 1)  # batch_size, traj_len, 2
-    resampled = torch.transpose(resampled, 0, 1)
-    # torch.sum(sampled[i] * resampled[i])
-    # cosine_similarity(sampled[i], resampled[i])
-    cos_batches = torch.tensor(
-        [
-            cosine_similarity_points(sampled[i], resampled[i])
-            for i in range(batch_size)
-        ]
-    )
-    return torch.mean(torch.abs(cos_batches))
-    # return torch.mean(
-    #     torch.abs(torch.nn.functional.cosine_similarity(sampled, resampled))
-    # )
+
+    if sampled.size(0) == 1:
+        sampled = torch.squeeze(sampled)
+        resampled = torch.squeeze(resampled)
+        res = torch.mean(
+            torch.abs(torch.nn.functional.cosine_similarity(sampled, resampled))
+        )
+        return res
+    else:
+        batch_size = sampled.size(1)
+        sampled = torch.transpose(sampled, 0, 1)  # batch_size, traj_len, 2
+        resampled = torch.transpose(resampled, 0, 1)
+        # torch.sum(sampled[i] * resampled[i])
+        # cosine_similarity(sampled[i], resampled[i])
+        cos_batches = torch.tensor(
+            [
+                cosine_similarity_points(sampled[i], resampled[i])
+                for i in range(batch_size)
+            ]
+        )
+        return torch.mean(torch.abs(cos_batches))
 
 
 def euclidean_distance_loss(sampled, resampled):
