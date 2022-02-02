@@ -29,7 +29,7 @@ from sgan.models import (
 from sgan.utils import int_tuple, bool_flag, get_total_norm
 from sgan.utils import relative_to_abs, get_dset_path
 
-from infogan.models import DHead, QHead
+from infogan.models import DHead, QHead, Recognizer
 from infogan.losses import q_loss_fn
 from infogan.codes import (
     get_disc_code,
@@ -40,6 +40,7 @@ from infogan.codes import (
 from infogan.traversals import interpolate, plot_interpolations
 from infogan.regularizations import (
     euclidean_distance_loss,
+    resample_cont_code,
     resample_each_cont_code,
     resample_each_disc_code,
     cosine_similarity_loss,
@@ -138,6 +139,7 @@ parser.add_argument('--lambda_cont_code', default=1e-1, type=float)
 parser.add_argument('--info_reg_fn', default=None, type=str)
 parser.add_argument('--lambda_info_disc_reg', default=0, type=float)
 parser.add_argument('--lambda_info_cont_reg', default=1e-1, type=float)
+parser.add_argument('--lambda_info_cont_rec', default=1e-1, type=float)
 
 parser.add_argument('--seed', default=2021, type=int)
 
@@ -182,6 +184,21 @@ def train_autoencoder(args, train_loader, val_loader, n_epochs, eval_every=1):
         # pooling_type=pooling_type,
         # neighborhood_size=neighborhood_size
     )
+    model_path = 'encoder.pt'
+
+    if torch.cuda.is_available():
+        encoder = encoder.cuda()
+        decoder = decoder.cuda()
+
+    if os.path.isfile(model_path):
+        encoder.load_state_dict(torch.load(model_path))
+        encoder.train()
+        decoder.train()
+        encoder.zero_grad()
+        decoder.zero_grad()
+        decoder.requires_grad_(False)
+        encoder.requires_grad_(False)
+        return encoder, decoder
 
     optimizer = optim.Adam(
         list(encoder.parameters()) + list(decoder.parameters()),
@@ -246,6 +263,13 @@ def train_autoencoder(args, train_loader, val_loader, n_epochs, eval_every=1):
                     running_loss += loss.item()
                 wandb.log({"eval_loss": running_loss / len(val_loader)})
 
+    torch.save(encoder.state_dict(), model_path)
+    encoder.train()
+    decoder.train()
+    encoder.zero_grad()
+    decoder.zero_grad()
+    decoder.requires_grad_(False)
+    encoder.requires_grad_(False)
     return encoder, decoder
 
 
@@ -275,13 +299,14 @@ def main(args, wandb_params=None):
     logger.info(
         'There are {} iterations per epoch'.format(iterations_per_epoch)
     )
-    run = wandb.init(config=args, group="autoencoder",
+    run = wandb.init(config=args, reinit=True, group="autoencoder",
         **(wandb_params or dict(mode = 'disabled')))
-    encoder, _ = train_autoencoder(args, train_loader, val_loader, n_epochs=120)
+    encoder, _ = train_autoencoder(args, train_loader, val_loader, n_epochs=100)
     run.finish()
 
-    run = wandb.init(config=args,
+    run = wandb.init(config=args, reinit=True,
         **(wandb_params or dict(mode = 'disabled')))
+    latent_code_dim = sum(args.n_disc_code) + args.n_cont_code
     generator = TrajectoryGenerator(
         obs_len=args.obs_len,
         pred_len=args.pred_len,
@@ -290,7 +315,7 @@ def main(args, wandb_params=None):
         decoder_h_dim=args.decoder_h_dim_g,
         mlp_dim=args.mlp_dim,
         num_layers=args.num_layers,
-        latent_code_dim=sum(args.n_disc_code) + args.n_cont_code,
+        latent_code_dim=latent_code_dim,
         noise_dim=args.noise_dim,
         noise_type=args.noise_type,
         noise_mix_type=args.noise_mix_type,
@@ -336,6 +361,19 @@ def main(args, wandb_params=None):
         dropout=args.dropout)
     qhead.type(float_dtype).train()
 
+    recognizer = Recognizer(
+        obs_len=args.obs_len,
+        pred_len=args.pred_len,
+        embedding_dim=args.embedding_dim,
+        h_dim=args.encoder_h_dim_d,
+        mlp_dim=args.mlp_dim,
+        num_layers=args.num_layers,
+        dropout=args.dropout,
+        batch_norm=args.batch_norm,
+        n_disc_code=args.n_disc_code,
+        n_cont_code=args.n_cont_code
+    )
+
     g_loss_fn = gan_g_loss
     d_loss_fn = gan_d_loss
     # q_loss_fn = q_loss_fn
@@ -346,6 +384,12 @@ def main(args, wandb_params=None):
     optimizer_d = optim.Adam(
         list(discriminator.parameters()) + list(dhead.parameters()),
         lr=args.d_learning_rate)
+
+    optimizer_r = optim.Adam(
+        recognizer.parameters(),
+        lr=args.d_learning_rate)
+
+    r_loss_fn = torch.nn.CrossEntropyLoss()
 
     # Maybe restore from checkpoint
     restore_path = None
@@ -430,7 +474,9 @@ def main(args, wandb_params=None):
                 step_type = 'g'
                 losses_g = generator_step(args, batch, generator,
                                           discriminator, g_loss_fn,
-                                          optimizer_g, dhead, qhead, q_loss_fn, encoder)
+                                          optimizer_g, dhead, qhead,
+                                          q_loss_fn, encoder,
+                                          optimizer_r, recognizer, r_loss_fn)
                 checkpoint['norm_g'].append(
                     get_total_norm(generator.parameters())
                 )
@@ -626,7 +672,7 @@ def discriminator_step(
 
 def generator_step(
     args, batch, generator, discriminator, g_loss_fn, optimizer_g, dhead, qhead, q_loss_fn,
-    encoder
+    encoder, optimizer_r, recognizer, r_loss_fn
 ):
     if torch.cuda.is_available():
         batch = [tensor.cuda() for tensor in batch]
@@ -693,7 +739,7 @@ def generator_step(
 
         if args.lambda_info_cont_reg > 0:
             epsilon = 1e-6
-            encoded_sampled = generator.encoder(sampled_generator_out)
+            encoded_sampled = encoder(sampled_generator_out)
             codes = resample_each_cont_code(
                 sampled_cont_code, args.n_cont_code, epsilon)
             gens = [
@@ -717,6 +763,39 @@ def generator_step(
 
             losses['G_q_cont_reg_loss'] = cont_reg_info_loss
             loss += args.lambda_info_cont_reg * cont_reg_info_loss
+
+    if args.lambda_info_cont_rec > 0:
+        sampled_disc_code = get_disc_code(n_samples, args.n_disc_code)
+        sampled_cont_code = get_cont_code(n_samples, args.n_cont_code)
+        sampled_latent_code = get_latent_code(
+            sampled_disc_code, sampled_cont_code)
+
+        # TODO: it should be no different with same noise or different noise
+        user_noise = get_noise((1,) + args.noise_dim, args.noise_type)
+        user_noise = user_noise.repeat(n_samples, 1)
+
+        sampled_out = generator(
+            obs_traj,
+            obs_traj_rel,
+            seq_start_end,
+            user_noise=user_noise,
+            latent_code=sampled_latent_code)
+
+        c, fix_idx = resample_cont_code(
+            sampled_cont_code, args.n_cont_code)
+
+        resampled_out = generator(
+                obs_traj,
+                obs_traj_rel,
+                seq_start_end,
+                user_noise=user_noise,
+                latent_code=get_latent_code(sampled_disc_code, c))
+        o = recognizer(sampled_out, resampled_out)
+        cont_rec_info_loss = r_loss_fn(
+            o, torch.tensor(fix_idx).repeat(o.size(0)))
+
+        losses['G_q_cont_rec_loss'] = cont_rec_info_loss
+        loss += args.lambda_info_cont_rec * cont_rec_info_loss
 
     g_l2_loss_sum_rel = torch.zeros(1).to(pred_traj_gt)
     if args.l2_loss_weight > 0:
@@ -756,13 +835,14 @@ def generator_step(
     losses['G_total_loss'] = loss.item()
 
     optimizer_g.zero_grad()
+    optimizer_r.zero_grad()
     loss.backward()
     if args.clipping_threshold_g > 0:
         nn.utils.clip_grad_norm_(
             generator.parameters(), args.clipping_threshold_g
         )
     optimizer_g.step()
-
+    optimizer_r.step()
     return losses
 
 

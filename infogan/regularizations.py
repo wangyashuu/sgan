@@ -1,6 +1,15 @@
 import torch
 import numpy as np
 
+from infogan.codes import get_cont_code
+
+
+def resample_cont_code(cont_code, n_cont_code):
+    n_samples = cont_code.size(0)
+    new_code = get_cont_code(n_samples, n_cont_code)
+    fix_idx = np.random.randint(0, n_cont_code)
+    new_code[:, fix_idx] = cont_code[:, fix_idx]
+    return new_code, fix_idx
 
 def resample_each_cont_code(cont_code, n_cont_code, epsilon=1e-8):
     codes = []
@@ -74,6 +83,8 @@ def cosine_similarity_loss(sampled, resampled):
     if sampled.size(0) == 1:
         sampled = torch.squeeze(sampled)
         resampled = torch.squeeze(resampled)
+        sampled = sampled / (torch.norm(sampled, dim=1).reshape(-1, 1) + 1e-22)
+        resampled = resampled / (torch.norm(resampled, dim=1).reshape(-1, 1) + 1e-22)
         res = torch.mean(
             torch.abs(torch.nn.functional.cosine_similarity(sampled, resampled))
         )
