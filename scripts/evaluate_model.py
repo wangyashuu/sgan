@@ -14,6 +14,8 @@ parser.add_argument('--model_path', type=str)
 parser.add_argument('--num_samples', default=20, type=int)
 parser.add_argument('--dset_type', default='test', type=str)
 
+parser.add_argument('--gpu_num', default="0", type=str)
+
 
 def get_generator(checkpoint):
     args = AttrDict(checkpoint['args'])
@@ -94,6 +96,7 @@ def evaluate(args, loader, generator, num_samples):
 
 
 def main(args):
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
     if os.path.isdir(args.model_path):
         filenames = os.listdir(args.model_path)
         filenames.sort()
