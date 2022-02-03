@@ -373,6 +373,7 @@ def main(args, wandb_params=None):
         n_disc_code=args.n_disc_code,
         n_cont_code=args.n_cont_code
     )
+    recognizer.type(float_dtype).train() 
 
     g_loss_fn = gan_g_loss
     d_loss_fn = gan_d_loss
@@ -792,7 +793,7 @@ def generator_step(
                 latent_code=get_latent_code(sampled_disc_code, c))
         o = recognizer(sampled_out, resampled_out)
         cont_rec_info_loss = r_loss_fn(
-            o, torch.tensor(fix_idx).repeat(o.size(0)))
+            o, torch.tensor(fix_idx).to(o).long().repeat(o.size(0))) 
 
         losses['G_q_cont_rec_loss'] = cont_rec_info_loss
         loss += args.lambda_info_cont_rec * cont_rec_info_loss
